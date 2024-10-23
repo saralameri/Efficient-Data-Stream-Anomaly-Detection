@@ -1,6 +1,9 @@
 import time
 import random
 import matplotlib.pyplot as plt
+from sklearn.ensemble import IsolationForest
+import numpy as np
+import pandas as pd
 
 # Simulating data stream 
 def add_extreme_noise(value, anomaly_factor_range=(5, 10)):
@@ -35,8 +38,7 @@ def start_data_stream():
             # print ("noise added")
             value = add_extreme_noise(value)
         
-        # Pass it to the data stream 
-        # ToDo round the value?
+        # Pass it to the data stream
         yield value
 
         # Sleep for half a second 
@@ -49,30 +51,63 @@ data_stream = start_data_stream()
 plt.ion()  # Turn on interactive mode for live updates
 fig, ax = plt.subplots()
 line, = ax.plot([], [], lw=2, color='black') # Create an empty line object that we will update with new data
-ax.set_xlim(0, 100)
-ax.set_ylim(0, 12000)  
-ax.set_xlabel('Transactions')  # Label for the x-axis
-ax.set_ylabel('Value')         # Label for the y-axis
-ax.set_title('Real-Time Data Stream with Anomalies')  # Title of the plot
 
 x_data = []
 y_data = []
+anomaly_pred=[]
 
 # Anomalies detection
+
+# Create the model
+model = IsolationForest(contamination=0.1)
+
+# read csv of past transaction data to train the model
+csv_data = pd.read_csv('transaction_data.csv')
+data = csv_data['Transaction Value'].values
+model.fit(np.array(data).reshape(-1, 1))
+
 for index, value in enumerate(data_stream):
     anomaly = False
-    print(value)
-    #ToDo do something with value (if anomaly -> anomaly = Talse)
-    ...
     # Update the data for plotting
     x_data.append(index)
     y_data.append(value)
 
-    # Update the plot
-    line.set_data(x_data, y_data) # Update the plot with the new data
-    ax.scatter(x_data, y_data, color='red' if anomaly else 'green', s=50 if anomaly else 20, edgecolor='black', zorder=2)  # Add circle markers
+
+    # To adapt to seasonal changes -> train the model every new set of vales (100)
+    # if (index % 100 == 0): 
+        # # Reshape for model input
+        # model.fit(np.array(y_data).reshape(-1, 1))
+
+    # To adapt to seasonal changes -> train the model every new 10 transactions with just their values to avoid duplicates
+    if (index % 10 == 0): 
+        # Reshape for model input
+        model.fit(np.array(y_data[-10:]).reshape(-1, 1))
+
+    # Predict anomalies
+    anomaly = model.predict(np.array([[value]]))  # Predict for the current value
+    anomaly = anomaly == -1  # Convert to boolean (True for anomaly)
+    anomaly_pred.append(anomaly)
+    print(value, anomaly)
+
+    #Update the plot
     ax.relim() # Adjust axis limits based on new data
     ax.autoscale_view() # Automatically rescale the plot to fit the new data
+    ax.clear()  # Clear only the axis content to redraw the plot
+    ax.plot(x_data, y_data, lw=2, color='black')  # Main line plot
+
+    # Plot all points, highlighting anomalies
+    for i in range(len(x_data)):
+        if anomaly_pred[i]:  # Use stored anomaly predictions
+            ax.scatter(x_data[i], y_data[i], color='red', s=100, edgecolor='black', zorder=3)  # Anomaly
+        else:
+            ax.scatter(x_data[i], y_data[i], color='green', s=20, edgecolor='black', zorder=2)  # Normal point
+
+
+    ax.set_xlim(max(0, index - 100), index)  # Adjust x-axis to show the last 100 points
+    ax.set_ylim(0, 12000)  # Maintain y-axis limits
+    ax.set_xlabel('Transactions')
+    ax.set_ylabel('Value')
+    ax.set_title('Real-Time Data Stream with Anomalies')
 
     plt.draw() # Redraw the updated plot
     plt.pause(0.01)  # Pause to allow for the plot update
@@ -84,10 +119,8 @@ for index, value in enumerate(data_stream):
         # only keep the last 100 points to make the x-axis range more manageable
         x_data = x_data[-100:]
         y_data = y_data[-100:]
+        anomaly_pred = anomaly_pred[-100:]
 
-    # Visualization 
-    # plt.plot(index, value)
-    # animation = FuncAnimation(plt.gcf(), interval = 1000, frames = 500, repeat = False)
 
 # ! will never get to this line  
 # plt.ioff()  # Turn off interactive mode
